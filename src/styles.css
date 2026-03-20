@@ -225,7 +225,7 @@ a {
 }
 
 .overview-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(8rem, 16rem);
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
   grid-template-areas: "map sidebar";
   align-items: stretch;
   min-height: 0;
@@ -249,9 +249,6 @@ a {
 
 .overview-sidebar {
   grid-area: sidebar;
-  display: grid;
-  gap: 0rem;
-  align-content: stretch;
   min-height: 0;
 }
 
@@ -267,6 +264,59 @@ a {
 
 .overview-sidebar .kpi-grid {
   grid-template-columns: 1fr;
+}
+
+.time-range-panel {
+  justify-content: flex-start;
+}
+
+.time-range-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.time-range-field {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.time-range-field span {
+  display: block;
+  color: var(--muted-text);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.time-range-input {
+  border: 1px solid var(--panel-border);
+  background: var(--surface-overlay);
+  color: var(--muted-text);
+  border-radius: 0.95rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.72rem 0.85rem;
+  font-size: 0.76rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.time-range-input:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary-accent) 24%, var(--panel-border));
+}
+
+.time-range-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary-accent) 55%, var(--panel-border));
+  box-shadow: 0 0 0 3px rgba(247, 198, 109, 0.12);
+}
+
+.time-range-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.9) sepia(0.16) saturate(0.3) hue-rotate(340deg);
 }
 
 .panel {
@@ -690,6 +740,10 @@ a {
   }
 
   .overview-sidebar .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .time-range-selector {
     grid-template-columns: 1fr;
   }
 

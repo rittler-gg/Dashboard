@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { geoMercator } from "d3-geo";
 import type { OrderEvent } from "../types/dashboard";
 import indiaGeoJsonRaw from "../assets/india-states.geojson?raw";
-import { formatCurrency, formatTime } from "../utils/format";
 
 interface IndiaMapPanelProps {
   orders: OrderEvent[];
@@ -196,15 +195,6 @@ export function IndiaMapPanel({ orders, highlightedOrder }: IndiaMapPanelProps) 
           <p className="eyebrow">Order geography</p>
           <h2>India live order map</h2>
         </div>
-        {highlightedOrder ? (
-          <div className="map-highlight">
-            <span>
-              {highlightedOrder.city}, {highlightedOrder.state}
-            </span>
-            <strong>{formatCurrency(highlightedOrder.orderValue)}</strong>
-            <small>{formatTime(highlightedOrder.timestamp)}</small>
-          </div>
-        ) : null}
       </div>
 
       <div className="map-frame">
