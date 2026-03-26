@@ -113,6 +113,8 @@ function formatDateKey(isoString: string) {
 const DEFAULT_DATE_RANGE: DashboardDateRange = {
   from: formatDateKey(new Date().toISOString()),
   to: formatDateKey(new Date().toISOString()),
+  fromTime: "00:00",
+  toTime: "23:59",
 };
 
 function getRangeStart(dateRange: DashboardDateRange) {
@@ -422,7 +424,7 @@ function createInitialState(
     activeMapMarkers: recentOrders
       .slice(0, INITIAL_MARKER_COUNT)
       .map((order, index) =>
-        buildMapMarker(order, Date.now() + index * 180, order.id === latestOrder?.id),
+        buildMapMarker(order, Date.now() + index * 180, order.id === latestOrder?.id, 3600),
       ),
     streamStatus,
     lastMessageAt: latestOrder?.timestamp ?? new Date().toISOString(),

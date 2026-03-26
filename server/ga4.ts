@@ -2,6 +2,24 @@ import { BetaAnalyticsDataClient } from "@google-analytics/data";
 
 const client = new BetaAnalyticsDataClient();
 
+function logQuota(propertyId: string, propertyQuota: unknown) {
+  if (!propertyQuota) {
+    return;
+  }
+
+  console.log(
+    "GA4 property quota:",
+    JSON.stringify(
+      {
+        propertyId,
+        propertyQuota,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 export async function getActiveUsers(): Promise<number> {
   const propertyId = process.env.GA4_PROPERTY_ID;
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -17,7 +35,10 @@ export async function getActiveUsers(): Promise<number> {
   const [response] = await client.runRealtimeReport({
     property: `properties/${propertyId}`,
     metrics: [{ name: "activeUsers" }],
+    returnPropertyQuota: true,
   });
+
+  logQuota(propertyId, response.propertyQuota);
 
   const value = response.rows?.[0]?.metricValues?.[0]?.value;
   return value ? parseInt(value, 10) : 0;

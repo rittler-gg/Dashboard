@@ -1,53 +1,42 @@
-import type { FeedComment, StreamStatus } from "../types/dashboard";
+import type { OrderEvent, StreamStatus } from "../types/dashboard";
 import { getStreamStatusLabel } from "../utils/streamStatus";
 import { formatCurrency, formatTime } from "../utils/format";
 
 interface OrderFeedProps {
-  comments: FeedComment[];
+  orders: OrderEvent[];
   streamStatus: StreamStatus;
 }
 
-export function OrderFeed({ comments, streamStatus }: OrderFeedProps) {
+const MAX_VISIBLE_ORDERS = 6;
+
+export function OrderFeed({ orders, streamStatus }: OrderFeedProps) {
   const feedLabel = getStreamStatusLabel(streamStatus, "feed");
+  const visibleOrders = orders.slice(0, MAX_VISIBLE_ORDERS).reverse();
 
   return (
-    <section className="order-feed-overlay" aria-label="Live order comments overlay">
+    <section className="order-feed-overlay" aria-label="Live order feed rail">
       <div className="order-feed-overlay-head">
         <p className="eyebrow">Live commerce feed</p>
         <span className={`feed-chip ${streamStatus}`}>{feedLabel}</span>
       </div>
 
       <div className="order-feed-stream" role="log" aria-live="polite">
-        {comments.map((comment) =>
-          comment.kind === "summary" ? (
-            <article key={comment.id} className="feed-comment feed-comment-enter">
-              <div className="feed-comment-time">{formatTime(comment.timestamp)}</div>
-              <div className="feed-comment-body">
-                <div className="feed-comment-headline">
-                  <strong>+{comment.summaryCount} more orders</strong>
-                  <span>Burst queue</span>
-                </div>
-                <p>Live overlay is compressing a spike to keep the stream readable.</p>
+        {visibleOrders.map((order) => (
+          <article key={order.id} className="feed-comment feed-ticker-enter">
+            <div className="feed-comment-time">{formatTime(order.timestamp)}</div>
+            <div className="feed-comment-body">
+              <div className="feed-comment-headline">
+                <strong>{formatCurrency(order.orderValue)}</strong>
+                <span>
+                  {order.city}, {order.state}
+                </span>
               </div>
-            </article>
-          ) : comment.order ? (
-            <article key={comment.id} className="feed-comment feed-comment-enter">
-              <div className="feed-comment-time">{formatTime(comment.order.timestamp)}</div>
-              <div className="feed-comment-body">
-                <div className="feed-comment-headline">
-                  <strong>{formatCurrency(comment.order.orderValue)}</strong>
-                  <span>
-                    {comment.order.city}, {comment.order.state}
-                  </span>
-                </div>
-                <p>
-                  Brand {comment.order.brand} via {comment.order.channel} on{" "}
-                  {comment.order.platform}
-                </p>
-              </div>
-            </article>
-          ) : null,
-        )}
+              <p>
+                Brand {order.brand} via {order.channel} on {order.platform}
+              </p>
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );

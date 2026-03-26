@@ -1,11 +1,20 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { geoMercator } from "d3-geo";
-import type { LocationHealth, MapMarker } from "../types/dashboard";
+import type { MapMarker } from "../types/dashboard";
 import indiaGeoJsonRaw from "../assets/india-states.geojson?raw";
 
 interface IndiaMapPanelProps {
   markers: MapMarker[];
-  locationHealth: LocationHealth;
+}
+
+interface ClusteredMarker {
+  id: string;
+  x: number;
+  y: number;
+  count: number;
+  highlighted: boolean;
+  placement: MapMarker["placement"];
+  edge?: MapMarker["edge"];
 }
 
 type ProjectedPoint = [number, number];
@@ -19,12 +28,16 @@ const MAP_VIEWBOX = {
   height: 720,
 };
 
-const MAP_PADDING = {
-  left: 72,
-  right: 72,
-  top: 14,
-  bottom: 20,
+// Adjust these values to change the safe projector padding around the India map.
+const PROJECTOR_SAFE_PADDING = {
+  left: 96,
+  right: 96,
+  top: 20,
+  bottom: 28,
 };
+
+// Update this epoch value directly in code to change the map countdown target.
+const COUNTDOWN_TARGET_EPOCH_MS = 1774981799000;
 
 const indiaGeoJson = JSON.parse(indiaGeoJsonRaw) as {
   features: Array<{
@@ -115,16 +128,18 @@ function createFittedProjector(features: typeof indiaGeoJson.features): Projecto
     visit(feature.geometry.coordinates);
   }
 
-  const availableWidth = MAP_VIEWBOX.width - MAP_PADDING.left - MAP_PADDING.right;
-  const availableHeight = MAP_VIEWBOX.height - MAP_PADDING.top - MAP_PADDING.bottom;
+  const availableWidth =
+    MAP_VIEWBOX.width - PROJECTOR_SAFE_PADDING.left - PROJECTOR_SAFE_PADDING.right;
+  const availableHeight =
+    MAP_VIEWBOX.height - PROJECTOR_SAFE_PADDING.top - PROJECTOR_SAFE_PADDING.bottom;
   const scale = Math.min(
     availableWidth / (maxX - minX),
     availableHeight / (maxY - minY),
   );
   const projectedWidth = (maxX - minX) * scale;
   const projectedHeight = (maxY - minY) * scale;
-  const offsetX = MAP_PADDING.left + (availableWidth - projectedWidth) / 2;
-  const offsetY = MAP_PADDING.top + (availableHeight - projectedHeight) / 2;
+  const offsetX = PROJECTOR_SAFE_PADDING.left + (availableWidth - projectedWidth) / 2;
+  const offsetY = PROJECTOR_SAFE_PADDING.top + (availableHeight - projectedHeight) / 2;
 
   return (point: ProjectedPoint) => {
     const projected = projectToPlane(point);
@@ -166,8 +181,89 @@ function getMarkerPoint(marker: MapMarker, project: Projector, index: number) {
   return project([marker.lng, marker.lat]);
 }
 
-export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
+function formatCountdown(targetEpochMs: number, nowMs: number) {
+  const remainingMs = Math.max(targetEpochMs - nowMs, 0);
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const paddedHours = String(hours).padStart(2, "0");
+  const paddedMinutes = String(minutes).padStart(2, "0");
+  const paddedSeconds = String(seconds).padStart(2, "0");
+
+  if (days > 0) {
+    return `${days}d ${paddedHours}h ${paddedMinutes}m ${paddedSeconds}s`;
+  }
+
+  return `${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
+}
+
+function clusterMarkers(markers: MapMarker[], project: Projector) {
+  const clustered = new Map<string, ClusteredMarker>();
+  const clusteringRadius = 30;
+
+  markers.forEach((marker, index) => {
+    const projectedPoint = getMarkerPoint(marker, project, index);
+
+    if (!projectedPoint) {
+      return;
+    }
+
+    const [x, y] = projectedPoint;
+
+    if (marker.highlighted) {
+      clustered.set(`highlighted:${marker.id}`, {
+        id: marker.id,
+        x,
+        y,
+        count: 1,
+        highlighted: true,
+        placement: marker.placement,
+        edge: marker.edge,
+      });
+      return;
+    }
+
+    const bucketX = Math.round(x / clusteringRadius);
+    const bucketY = Math.round(y / clusteringRadius);
+    const key = `${marker.placement}:${marker.edge ?? "none"}:${bucketX}:${bucketY}`;
+    const existing = clustered.get(key);
+
+    if (!existing) {
+      clustered.set(key, {
+        id: key,
+        x,
+        y,
+        count: 1,
+        highlighted: false,
+        placement: marker.placement,
+        edge: marker.edge,
+      });
+      return;
+    }
+
+    clustered.set(key, {
+      ...existing,
+      x: (existing.x * existing.count + x) / (existing.count + 1),
+      y: (existing.y * existing.count + y) / (existing.count + 1),
+      count: existing.count + 1,
+    });
+  });
+
+  return Array.from(clustered.values()).sort((left, right) => {
+    if (left.highlighted !== right.highlighted) {
+      return left.highlighted ? -1 : 1;
+    }
+
+    return right.count - left.count;
+  });
+}
+
+export function IndiaMapPanel({ markers }: IndiaMapPanelProps) {
   const projection = useMemo(() => createFittedProjector(indiaGeoJson.features), []);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const projectedRegions = useMemo(
     () =>
       indiaGeoJson.features.map((feature, index) => ({
@@ -176,6 +272,18 @@ export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
       })),
     [projection],
   );
+  const clusteredMarkers = useMemo(() => clusterMarkers(markers, projection), [markers, projection]);
+  const countdownLabel = formatCountdown(COUNTDOWN_TARGET_EPOCH_MS, nowMs);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <section className="panel map-panel">
@@ -184,13 +292,9 @@ export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
           <p className="eyebrow">Order geography</p>
           <h2>India live order map</h2>
         </div>
-        <div className="map-status-stack">
-          {locationHealth.outOfIndiaCount > 0 ? (
-            <span className="map-meta-pill">Outside India {locationHealth.outOfIndiaCount}</span>
-          ) : null}
-          {locationHealth.invalidCount > 0 ? (
-            <span className="map-meta-pill">Fallbacks {locationHealth.invalidCount}</span>
-          ) : null}
+        <div className="map-countdown">
+          <span>Countdown</span>
+          <strong>{countdownLabel}</strong>
         </div>
       </div>
 
@@ -209,14 +313,7 @@ export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
             </g>
 
             <g className="india-point-layer">
-              {markers.map((marker, index) => {
-                const projectedPoint = getMarkerPoint(marker, projection, index);
-
-                if (!projectedPoint) {
-                  return null;
-                }
-
-                const [x, y] = projectedPoint;
+              {clusteredMarkers.map((marker, index) => {
                 const markerClassName = [
                   "map-point",
                   marker.highlighted ? "highlighted" : "",
@@ -230,12 +327,17 @@ export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
                   <g
                     key={marker.id}
                     className="map-point-anchor"
-                    transform={`translate(${x}, ${y})`}
+                    transform={`translate(${marker.x}, ${marker.y})`}
                   >
                     <g className={markerClassName} style={{ animationDelay: `${index * 120}ms` }}>
-                      <circle className="map-point-glow" r="14" />
-                      <circle className="map-point-outer" r="7.5" />
-                      <circle className="map-point-core" r="3.2" />
+                      <circle className="map-point-glow" r={marker.count > 1 ? 14 : 11} />
+                      <circle className="map-point-outer" r={marker.count > 1 ? 8 : 6} />
+                      <circle className="map-point-core" r="2.6" />
+                      {marker.count > 1 ? (
+                        <text className="map-point-count" textAnchor="middle" y="4">
+                          +{marker.count}
+                        </text>
+                      ) : null}
                     </g>
                   </g>
                 );

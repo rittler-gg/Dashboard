@@ -8,6 +8,8 @@ export type StreamStatus =
 export interface DashboardDateRange {
   from: string;
   to: string;
+  fromTime: string;
+  toTime: string;
 }
 
 export type Brand = "Core" | "BTC" | "Amodira" | "Other" | "Unknown";

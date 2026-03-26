@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.6.1",
     "d3-geo": "^3.1.1",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
