@@ -25,6 +25,20 @@ export function formatCompactNumber(amount: number) {
   }).format(amount);
 }
 
+export function formatTrafficNumber(amount: number) {
+  if (Math.abs(amount) < 100_000) {
+    return formatWholeNumber(amount);
+  }
+
+  return formatCompactNumber(amount);
+}
+
+export function formatWholeNumber(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 export function formatTime(isoString: string) {
   return new Intl.DateTimeFormat("en-IN", {
     hour: "2-digit",

@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { geoMercator } from "d3-geo";
-import type { OrderEvent } from "../types/dashboard";
+import type { LocationHealth, MapMarker } from "../types/dashboard";
 import indiaGeoJsonRaw from "../assets/india-states.geojson?raw";
 
 interface IndiaMapPanelProps {
-  orders: OrderEvent[];
-  highlightedOrder?: OrderEvent;
+  markers: MapMarker[];
+  locationHealth: LocationHealth;
 }
 
 type ProjectedPoint = [number, number];
@@ -36,10 +36,7 @@ const indiaGeoJson = JSON.parse(indiaGeoJsonRaw) as {
   }>;
 };
 
-function projectRing(
-  ring: GeoRing,
-  project: Projector,
-) {
+function projectRing(ring: GeoRing, project: Projector) {
   const points = ring
     .map((pair) => project([pair[0], pair[1]]))
     .filter((point): point is ProjectedPoint => Boolean(point));
@@ -48,11 +45,18 @@ function projectRing(
     return "";
   }
 
-  return points.map(([x, y], index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ") + " Z";
+  return (
+    points
+      .map(([x, y], index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
+      .join(" ") + " Z"
+  );
 }
 
 function buildFeaturePath(
-  geometry: { type: "Polygon" | "MultiPolygon"; coordinates: GeoPolygonCoordinates | GeoMultiPolygonCoordinates },
+  geometry: {
+    type: "Polygon" | "MultiPolygon";
+    coordinates: GeoPolygonCoordinates | GeoMultiPolygonCoordinates;
+  },
   project: Projector,
 ) {
   if (geometry.type === "Polygon") {
@@ -69,58 +73,16 @@ function buildFeaturePath(
 }
 
 function createIndiaProjector(features: typeof indiaGeoJson.features): Projector {
-  const rawProjection = geoMercator()
-    .center([82.8, 22.5])
-    .scale(1)
-    .translate([0, 0]);
-
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-
-  const visit = (coords: GeoRing | GeoPolygonCoordinates | GeoMultiPolygonCoordinates) => {
-    if (typeof coords[0][0] === "number") {
-      for (const pair of coords as GeoRing) {
-        const projected = rawProjection([pair[0], pair[1]]);
-
-        if (!projected) {
-          continue;
-        }
-
-        const [x, y] = projected;
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-      }
-      return;
-    }
-
-    for (const child of coords as GeoPolygonCoordinates | GeoMultiPolygonCoordinates) {
-      visit(child);
-    }
-  };
-
-  for (const feature of features) {
-    visit(feature.geometry.coordinates);
-  }
+  const rawProjection = geoMercator().center([82.8, 22.5]).scale(1).translate([0, 0]);
 
   return (point: ProjectedPoint) => {
     const projected = rawProjection(point);
-
-    if (!projected) {
-      return null;
-    }
-
-    const [x, y] = projected;
-    return [x, y];
+    return projected ? [projected[0], projected[1]] : null;
   };
 }
 
 function createFittedProjector(features: typeof indiaGeoJson.features): Projector {
   const projectToPlane = createIndiaProjector(features);
-
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
@@ -176,8 +138,35 @@ function createFittedProjector(features: typeof indiaGeoJson.features): Projecto
   };
 }
 
-export function IndiaMapPanel({ orders, highlightedOrder }: IndiaMapPanelProps) {
-  const visiblePins = orders.slice(0, 28);
+function getOutskirtsPoint(marker: MapMarker, index: number): ProjectedPoint {
+  const offset = (index % 4) * 24;
+
+  switch (marker.edge) {
+    case "north":
+      return [MAP_VIEWBOX.width * 0.52 + offset, 72];
+    case "south":
+      return [MAP_VIEWBOX.width * 0.48 - offset, MAP_VIEWBOX.height - 64];
+    case "west":
+      return [96, MAP_VIEWBOX.height * 0.48 - offset];
+    case "east":
+    default:
+      return [MAP_VIEWBOX.width - 94, MAP_VIEWBOX.height * 0.42 + offset];
+  }
+}
+
+function getMarkerPoint(marker: MapMarker, project: Projector, index: number) {
+  if (marker.placement === "outskirts") {
+    return getOutskirtsPoint(marker, index);
+  }
+
+  if (marker.placement === "unknown" || marker.lat === null || marker.lng === null) {
+    return [110, MAP_VIEWBOX.height - 92] as ProjectedPoint;
+  }
+
+  return project([marker.lng, marker.lat]);
+}
+
+export function IndiaMapPanel({ markers, locationHealth }: IndiaMapPanelProps) {
   const projection = useMemo(() => createFittedProjector(indiaGeoJson.features), []);
   const projectedRegions = useMemo(
     () =>
@@ -194,6 +183,14 @@ export function IndiaMapPanel({ orders, highlightedOrder }: IndiaMapPanelProps) 
         <div>
           <p className="eyebrow">Order geography</p>
           <h2>India live order map</h2>
+        </div>
+        <div className="map-status-stack">
+          {locationHealth.outOfIndiaCount > 0 ? (
+            <span className="map-meta-pill">Outside India {locationHealth.outOfIndiaCount}</span>
+          ) : null}
+          {locationHealth.invalidCount > 0 ? (
+            <span className="map-meta-pill">Fallbacks {locationHealth.invalidCount}</span>
+          ) : null}
         </div>
       </div>
 
@@ -212,26 +209,30 @@ export function IndiaMapPanel({ orders, highlightedOrder }: IndiaMapPanelProps) 
             </g>
 
             <g className="india-point-layer">
-              {visiblePins.map((order, index) => {
-                const projectedPoint = projection([order.lng, order.lat]);
+              {markers.map((marker, index) => {
+                const projectedPoint = getMarkerPoint(marker, projection, index);
 
                 if (!projectedPoint) {
                   return null;
                 }
 
-                const isHighlighted = highlightedOrder?.id === order.id;
                 const [x, y] = projectedPoint;
+                const markerClassName = [
+                  "map-point",
+                  marker.highlighted ? "highlighted" : "",
+                  marker.placement === "outskirts" ? "outskirts" : "",
+                  marker.placement === "unknown" ? "unknown" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
                 return (
                   <g
-                    key={order.id}
+                    key={marker.id}
                     className="map-point-anchor"
                     transform={`translate(${x}, ${y})`}
                   >
-                    <g
-                      className={isHighlighted ? "map-point highlighted" : "map-point"}
-                      style={{ animationDelay: `${index * 120}ms` }}
-                    >
+                    <g className={markerClassName} style={{ animationDelay: `${index * 120}ms` }}>
                       <circle className="map-point-glow" r="14" />
                       <circle className="map-point-outer" r="7.5" />
                       <circle className="map-point-core" r="3.2" />

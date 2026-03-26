@@ -1,23 +1,49 @@
-export type Brand = "Core" | "BTC" | "Amodira";
-export type SalesChannel = "D2C" | "MP" | "Offline";
-export type Platform = "App" | "Web";
+export type StreamStatus =
+  | "connecting"
+  | "live"
+  | "stale"
+  | "reconnecting"
+  | "error";
+
+export interface DashboardDateRange {
+  from: string;
+  to: string;
+}
+
+export type Brand = "Core" | "BTC" | "Amodira" | "Other" | "Unknown";
+export type SalesChannel = "D2C" | "MP" | "Offline" | "Other" | "Unknown";
+export type Platform = "App" | "Web" | "Other" | "Unknown";
+
+export type LocationResolution =
+  | "exact"
+  | "city_centroid"
+  | "state_centroid"
+  | "out_of_india"
+  | "unknown";
+
+export type MarkerPlacement = "india" | "outskirts" | "unknown";
+export type MarkerEdge = "north" | "south" | "east" | "west";
 
 export interface OrderEvent {
   id: string;
   timestamp: string;
   city: string;
   state: string;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   brand: Brand;
   channel: SalesChannel;
   platform: Platform;
   orderValue: number;
+  unitsSold: number;
+  locationResolution: LocationResolution;
+  isOutOfIndia: boolean;
 }
 
 export interface KpiSnapshot {
   totalOrders: number;
   totalRevenue: number;
+  totalUnits: number;
   averageOrderValue: number;
 }
 
@@ -42,18 +68,97 @@ export interface DashboardBreakdowns {
   platform: PlatformBreakdown[];
 }
 
-export interface DashboardState {
-  orders: OrderEvent[];
+export interface AggregateBucket {
+  date: string;
+  orders: number;
+  revenue: number;
+  units: number;
+}
+
+export interface BrandHourlyPoint {
+  brand: Brand;
+  hour: string;
+  orders: number;
+}
+
+export interface CheckoutFunnelStep {
+  key: "sessions" | "pdp_views" | "add_to_cart" | "checkout_started" | "order_placed";
+  label: string;
+  count: number | null;
+  dropOffFromPrevious: number | null;
+}
+
+export interface AggregateSnapshot {
   kpis: KpiSnapshot;
   traffic: TrafficSnapshot;
   breakdowns: DashboardBreakdowns;
-  lastOrder?: OrderEvent;
-  streamStatus: "connecting" | "live";
+  dailySeries: AggregateBucket[];
+  brandHourly: BrandHourlyPoint[];
+  checkoutFunnel: CheckoutFunnelStep[] | null;
+  asOf: string;
 }
 
+export interface FeedComment {
+  id: string;
+  kind: "order" | "summary";
+  timestamp: string;
+  order?: OrderEvent;
+  summaryCount?: number;
+  expiresAt: number;
+}
+
+export interface MapMarker {
+  id: string;
+  orderId: string;
+  timestamp: string;
+  city: string;
+  state: string;
+  orderValue: number;
+  brand: Brand;
+  lat: number | null;
+  lng: number | null;
+  placement: MarkerPlacement;
+  edge?: MarkerEdge;
+  locationResolution: LocationResolution;
+  highlighted: boolean;
+  expiresAt: number;
+}
+
+export interface LocationHealth {
+  invalidCount: number;
+  outOfIndiaCount: number;
+  unknownCount: number;
+  fallbackCount: number;
+}
+
+export interface DashboardState {
+  aggregateSnapshot: AggregateSnapshot;
+  recentOrders: OrderEvent[];
+  feedQueue: OrderEvent[];
+  activeFeedComments: FeedComment[];
+  activeMapMarkers: MapMarker[];
+  streamStatus: StreamStatus;
+  lastMessageAt?: string;
+  streamError?: string;
+}
+
+export type DashboardStreamUpdate =
+  | { type: "snapshot"; snapshot: AggregateSnapshot }
+  | { type: "traffic"; traffic: TrafficSnapshot }
+  | { type: "orders"; orders: OrderEvent[] }
+  | { type: "status"; status: StreamStatus }
+  | { type: "error"; message: string };
+
 export interface DashboardDataSource {
-  getInitialDashboardState: () => DashboardState;
+  getInitialDashboardState: (dateRange: DashboardDateRange) => DashboardState;
+  getAggregateSnapshotForRange: (
+    dateRange: DashboardDateRange,
+    traffic: TrafficSnapshot,
+  ) => AggregateSnapshot;
   subscribeToMockUpdates: (
-    onStateChange: (state: DashboardState) => void,
+    onUpdate: (update: DashboardStreamUpdate) => void,
+    options?: {
+      getDateRange?: () => DashboardDateRange;
+    },
   ) => () => void;
 }

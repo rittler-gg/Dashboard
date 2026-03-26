@@ -1,123 +1,70 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { IndiaMapPanel } from "../components/IndiaMapPanel";
 import { KpiCard } from "../components/KpiCard";
 import { OrderFeed } from "../components/OrderFeed";
-import type { DashboardState } from "../types/dashboard";
+import type { DashboardDateRange, DashboardState } from "../types/dashboard";
+import { computeLocationHealth } from "../utils/dashboardLive";
 import {
-  formatCompactNumber,
+  formatTrafficNumber,
   formatCurrency,
   formatDashboardRevenue,
 } from "../utils/format";
 
 interface OverviewPageProps {
   state: DashboardState;
-}
-
-function formatDateInputValue(isoString: string) {
-  const date = new Date(isoString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function getStartOfDay(dateString: string) {
-  return new Date(`${dateString}T00:00:00`).getTime();
-}
-
-function getEndOfDay(dateString: string) {
-  return new Date(`${dateString}T23:59:59.999`).getTime();
+  dateRange: DashboardDateRange;
 }
 
 export function OverviewPage({ state }: OverviewPageProps) {
-  const availableDateRange = useMemo(() => {
-    const timestamps = state.orders.map((order) => order.timestamp);
-    const latestDate = timestamps[0] ?? new Date().toISOString();
-    const oldestDate = timestamps[timestamps.length - 1] ?? latestDate;
+  const locationHealth = useMemo(
+    () => computeLocationHealth(state.recentOrders),
+    [state.recentOrders],
+  );
 
-    return {
-      min: formatDateInputValue(oldestDate),
-      max: formatDateInputValue(latestDate),
-    };
-  }, [state.orders]);
-
-  const [startDate, setStartDate] = useState(() => availableDateRange.min);
-  const [endDate, setEndDate] = useState(() => availableDateRange.max);
-
-  const scopedKpis = useMemo(() => {
-    const rangeStart = getStartOfDay(startDate);
-    const rangeEnd = getEndOfDay(endDate);
-    const scopedOrders = state.orders.filter(
-      (order) => {
-        const timestamp = Number(new Date(order.timestamp));
-        return timestamp >= rangeStart && timestamp <= rangeEnd;
-      },
-    );
-    const totalRevenue = scopedOrders.reduce((sum, order) => sum + order.orderValue, 0);
-    const totalOrders = scopedOrders.length;
-
-    return {
-      totalOrders,
-      totalRevenue,
-      averageOrderValue: totalOrders === 0 ? 0 : Math.round(totalRevenue / totalOrders),
-    };
-  }, [endDate, startDate, state.orders]);
+  const scopedKpis = state.aggregateSnapshot.kpis;
+  const unitsPerOrder =
+    scopedKpis.totalOrders === 0 ? 0 : state.aggregateSnapshot.kpis.totalUnits / scopedKpis.totalOrders;
 
   return (
     <div className="overview-grid">
-      <IndiaMapPanel orders={state.orders} highlightedOrder={state.lastOrder} />
+      <IndiaMapPanel markers={state.activeMapMarkers} locationHealth={locationHealth} />
       <div className="overview-feed-overlay">
-        <OrderFeed orders={state.orders} />
+        <OrderFeed comments={state.activeFeedComments} streamStatus={state.streamStatus} />
       </div>
       <aside className="overview-sidebar">
         <section className="kpi-grid">
-          <article className="panel kpi-card time-range-panel" aria-label="Totals time range">
-            <div className="kpi-head">
-              <span>Date Range</span>
-            </div>
-            <div className="time-range-selector">
-              <label className="time-range-field">
-                <span>From</span>
-                <input
-                  className="time-range-input"
-                  type="date"
-                  value={startDate}
-                  max={endDate}
-                  min={availableDateRange.min}
-                  onChange={(event) => setStartDate(event.target.value)}
-                />
-              </label>
-              <label className="time-range-field">
-                <span>To</span>
-                <input
-                  className="time-range-input"
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  max={availableDateRange.max}
-                  onChange={(event) => setEndDate(event.target.value)}
-                />
-              </label>
-            </div>
-          </article>
           <KpiCard
             label="Total Orders"
-            value={formatCompactNumber(scopedKpis.totalOrders)}
+            value={scopedKpis.totalOrders.toLocaleString("en-IN")}
             accent="#f7c66d"
-            helper={`AOV ${formatCurrency(scopedKpis.averageOrderValue)}`}
+            helper="Orders in selected range"
           />
           <KpiCard
             label="Total Revenue"
             value={formatDashboardRevenue(scopedKpis.totalRevenue)}
             accent="#f3a86c"
-            helper="Gross value within selected range"
+            helper={`Snapshot as of ${new Date(state.aggregateSnapshot.asOf).toLocaleTimeString("en-IN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`}
+          />
+          <KpiCard
+            label="AOV"
+            value={formatCurrency(scopedKpis.averageOrderValue)}
+            accent="#f09e64"
+            helper="Avg per order"
+          />
+          <KpiCard
+            label="Units Sold"
+            value={scopedKpis.totalUnits.toLocaleString("en-IN")}
+            accent="#f6cf88"
+            helper={`${unitsPerOrder.toFixed(1)} units / order`}
           />
           <KpiCard
             label="Live Traffic"
-            value={formatCompactNumber(state.traffic.activeUsers)}
+            value={formatTrafficNumber(state.aggregateSnapshot.traffic.activeUsers)}
             accent="#e66f51"
-            helper={`${state.traffic.delta >= 0 ? "+" : ""}${state.traffic.delta} vs last pulse`}
+            helper={`${state.aggregateSnapshot.traffic.delta >= 0 ? "+" : ""}${state.aggregateSnapshot.traffic.delta} vs last pulse`}
           />
         </section>
       </aside>
