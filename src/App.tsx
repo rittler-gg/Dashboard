@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import chaChingSound from "./assets/cha-ching.mp3";
+import chaChing from "./assets/cha-ching.mp3";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { BreakdownsPage } from "./pages/BreakdownsPage";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -10,49 +10,61 @@ import { useDashboardStream } from "./hooks/useDashboardStream";
 const ORDER_ALERT_BATCH_WINDOW_MS = 180;
 const ORDER_ALERT_STAGGER_MS = 115;
 const MAX_ALERTS_PER_BATCH = 3;
-const ORDER_ALERT_AUDIO_VERSION = "cha-ching-v1";
+const ORDER_ALERT_AUDIO_VERSION = "cha-ching-v3";
+const ORDER_ALERT_AUDIO_POOL_SIZE = 4;
 
-function getOrderAlertAudio() {
+type AudioPoolWindow = typeof window & {
+  __econicOrderAlertAudioPool?: HTMLAudioElement[];
+  __econicOrderAlertAudioVersion?: string;
+};
+
+function getOrderAlertAudioPool() {
   if (typeof window === "undefined") {
-    return null;
+    return [];
   }
 
-  const audioWindow = window as typeof window & {
-    __econicOrderAlertAudio?: HTMLAudioElement;
-    __econicOrderAlertAudioVersion?: string;
-  };
+  const audioWindow = window as AudioPoolWindow;
 
   if (
-    !audioWindow.__econicOrderAlertAudio ||
+    !audioWindow.__econicOrderAlertAudioPool ||
     audioWindow.__econicOrderAlertAudioVersion !== ORDER_ALERT_AUDIO_VERSION
   ) {
-    const audio = new Audio(chaChingSound);
-    audio.preload = "auto";
-    audio.volume = 0.9;
-    audioWindow.__econicOrderAlertAudio = audio;
+    audioWindow.__econicOrderAlertAudioPool = Array.from(
+      { length: ORDER_ALERT_AUDIO_POOL_SIZE },
+      () => {
+        const audio = new Audio(chaChing);
+        audio.preload = "auto";
+        audio.volume = 1;
+        return audio;
+      },
+    );
     audioWindow.__econicOrderAlertAudioVersion = ORDER_ALERT_AUDIO_VERSION;
   }
 
-  return audioWindow.__econicOrderAlertAudio;
+  return audioWindow.__econicOrderAlertAudioPool;
 }
 
 function playOrderAlertBurst(count: number) {
-  const baseAudio = getOrderAlertAudio();
+  const audioPool = getOrderAlertAudioPool();
 
-  if (!baseAudio) {
-    return;
+  if (audioPool.length === 0) {
+    return false;
   }
 
   const playCount = Math.min(count, MAX_ALERTS_PER_BATCH);
 
   for (let index = 0; index < playCount; index += 1) {
     window.setTimeout(() => {
-      const audio = baseAudio.cloneNode() as HTMLAudioElement;
-      audio.volume = baseAudio.volume;
+      const audio = audioPool[index % audioPool.length];
+      audio.pause();
       audio.currentTime = 0;
-      void audio.play().catch(() => undefined);
+      void audio.play().catch((error) => {
+        console.warn("Order alert playback failed:", error);
+      });
     }, index * ORDER_ALERT_STAGGER_MS);
   }
+
+  return true;
 }
 
 function App() {
@@ -63,19 +75,45 @@ function App() {
   const isHydratedRef = useRef(false);
   const pendingAlertCountRef = useRef(0);
   const alertFlushTimerRef = useRef<number | null>(null);
+  const audioPrimedRef = useRef(false);
 
   useEffect(() => {
-    const primeAudio = () => {
-      const audio = getOrderAlertAudio();
+    const audioPool = getOrderAlertAudioPool();
 
-      if (!audio) {
+    audioPool.forEach((audio) => {
+      audio.load();
+    });
+
+    const primeAudio = () => {
+      if (audioPrimedRef.current) {
         return;
       }
 
-      void audio.play().then(() => {
-        audio.pause();
-        audio.currentTime = 0;
-      }).catch(() => undefined);
+      const pool = getOrderAlertAudioPool();
+
+      if (pool.length === 0) {
+        return;
+      }
+
+      audioPrimedRef.current = true;
+
+      pool.forEach((audio) => {
+        void audio.play().then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+        }).catch((error) => {
+          audioPrimedRef.current = false;
+          console.warn("Order alert priming failed:", error);
+        });
+      });
+
+      if (pendingAlertCountRef.current > 0) {
+        const didPlay = playOrderAlertBurst(pendingAlertCountRef.current);
+
+        if (didPlay) {
+          pendingAlertCountRef.current = 0;
+        }
+      }
     };
 
     window.addEventListener("pointerdown", primeAudio, { passive: true });
@@ -93,8 +131,12 @@ function App() {
         return;
       }
 
-      playOrderAlertBurst(pendingAlertCountRef.current);
-      pendingAlertCountRef.current = 0;
+      const didPlay = playOrderAlertBurst(pendingAlertCountRef.current);
+
+      if (didPlay) {
+        pendingAlertCountRef.current = 0;
+      }
+
       alertFlushTimerRef.current = null;
     };
 
@@ -145,10 +187,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/overview" replace />} />
         <Route path="/overview" element={<OverviewPage state={state} dateRange={dateRange} />} />
-        <Route
-          path="/breakdowns"
-          element={<BreakdownsPage state={state} />}
-        />
+        <Route path="/breakdowns" element={<BreakdownsPage state={state} />} />
       </Routes>
     </DashboardLayout>
   );

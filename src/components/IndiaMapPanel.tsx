@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { geoMercator } from "d3-geo";
 import type { MapMarker } from "../types/dashboard";
 import indiaGeoJsonRaw from "../assets/india-states.geojson?raw";
@@ -7,12 +8,12 @@ interface IndiaMapPanelProps {
   markers: MapMarker[];
 }
 
-interface ClusteredMarker {
+interface ProjectedMarker {
   id: string;
   x: number;
   y: number;
-  count: number;
   highlighted: boolean;
+  overlapCount: number;
   placement: MapMarker["placement"];
   edge?: MapMarker["edge"];
 }
@@ -200,9 +201,67 @@ function formatCountdown(targetEpochMs: number, nowMs: number) {
   return `${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
 }
 
-function clusterMarkers(markers: MapMarker[], project: Projector) {
-  const clustered = new Map<string, ClusteredMarker>();
-  const clusteringRadius = 30;
+function getTightScatterOffset(slot: number) {
+  if (slot <= 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const clumpOffsets = [
+    { x: 2, y: -1 },
+    { x: -2, y: 1 },
+    { x: 1, y: 2 },
+    { x: -1, y: -2 },
+    { x: 3, y: 1 },
+    { x: -3, y: -1 },
+    { x: 2, y: 3 },
+    { x: -2, y: -3 },
+    { x: 4, y: -2 },
+    { x: -4, y: 2 },
+    { x: 0, y: 4 },
+    { x: 0, y: -4 },
+  ];
+
+  const baseOffset = clumpOffsets[(slot - 1) % clumpOffsets.length];
+  const ring = Math.floor((slot - 1) / clumpOffsets.length);
+  const spread = 1 + ring * 0.75;
+
+  return {
+    x: baseOffset.x * spread,
+    y: baseOffset.y * spread,
+  };
+}
+
+function clusterProjectedMarkers(markers: ProjectedMarker[]) {
+  const buckets = new Map<string, ProjectedMarker[]>();
+
+  for (const marker of markers) {
+    const key = `${marker.placement}:${marker.edge ?? "none"}:${Math.round(marker.x)}:${Math.round(marker.y)}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(marker);
+    buckets.set(key, bucket);
+  }
+
+  return Array.from(buckets.values()).flatMap((bucket) => {
+    const highlightedMarkers = bucket.filter((marker) => marker.highlighted);
+    const ordinaryMarkers = bucket.filter((marker) => !marker.highlighted);
+    const orderedBucket = [...highlightedMarkers, ...ordinaryMarkers];
+
+    return orderedBucket.map((marker, index) => {
+      const offset =
+        marker.placement === "india" ? getTightScatterOffset(index) : { x: 0, y: 0 };
+
+      return {
+        ...marker,
+        x: marker.x + offset.x,
+        y: marker.y + offset.y,
+        overlapCount: orderedBucket.length,
+      };
+    });
+  });
+}
+
+function projectMarkers(markers: MapMarker[], project: Projector) {
+  const projectedMarkers: ProjectedMarker[] = [];
 
   markers.forEach((marker, index) => {
     const projectedPoint = getMarkerPoint(marker, project, index);
@@ -212,53 +271,26 @@ function clusterMarkers(markers: MapMarker[], project: Projector) {
     }
 
     const [x, y] = projectedPoint;
-
-    if (marker.highlighted) {
-      clustered.set(`highlighted:${marker.id}`, {
-        id: marker.id,
-        x,
-        y,
-        count: 1,
-        highlighted: true,
-        placement: marker.placement,
-        edge: marker.edge,
-      });
-      return;
-    }
-
-    const bucketX = Math.round(x / clusteringRadius);
-    const bucketY = Math.round(y / clusteringRadius);
-    const key = `${marker.placement}:${marker.edge ?? "none"}:${bucketX}:${bucketY}`;
-    const existing = clustered.get(key);
-
-    if (!existing) {
-      clustered.set(key, {
-        id: key,
-        x,
-        y,
-        count: 1,
-        highlighted: false,
-        placement: marker.placement,
-        edge: marker.edge,
-      });
-      return;
-    }
-
-    clustered.set(key, {
-      ...existing,
-      x: (existing.x * existing.count + x) / (existing.count + 1),
-      y: (existing.y * existing.count + y) / (existing.count + 1),
-      count: existing.count + 1,
+    projectedMarkers.push({
+      id: marker.id,
+      x,
+      y,
+      highlighted: marker.highlighted,
+      overlapCount: 1,
+      placement: marker.placement,
+      edge: marker.edge,
     });
   });
 
-  return Array.from(clustered.values()).sort((left, right) => {
-    if (left.highlighted !== right.highlighted) {
-      return left.highlighted ? -1 : 1;
-    }
+  const sortedMarkers = projectedMarkers.sort((left, right) => {
+      if (left.highlighted !== right.highlighted) {
+        return left.highlighted ? -1 : 1;
+      }
 
-    return right.count - left.count;
-  });
+      return 0;
+    });
+
+  return clusterProjectedMarkers(sortedMarkers);
 }
 
 export function IndiaMapPanel({ markers }: IndiaMapPanelProps) {
@@ -272,7 +304,7 @@ export function IndiaMapPanel({ markers }: IndiaMapPanelProps) {
       })),
     [projection],
   );
-  const clusteredMarkers = useMemo(() => clusterMarkers(markers, projection), [markers, projection]);
+  const projectedMarkers = useMemo(() => projectMarkers(markers, projection), [markers, projection]);
   const countdownLabel = formatCountdown(COUNTDOWN_TARGET_EPOCH_MS, nowMs);
 
   useEffect(() => {
@@ -306,6 +338,13 @@ export function IndiaMapPanel({ markers }: IndiaMapPanelProps) {
             viewBox={`0 0 ${MAP_VIEWBOX.width} ${MAP_VIEWBOX.height}`}
             aria-hidden="true"
           >
+            <defs>
+              <radialGradient id="map-halo-gradient" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#009245" stopOpacity="0.32" />
+                <stop offset="55%" stopColor="#009245" stopOpacity="0.16" />
+                <stop offset="100%" stopColor="#009245" stopOpacity="0" />
+              </radialGradient>
+            </defs>
             <g className="india-geo-regions">
               {projectedRegions.map((region) =>
                 region.path ? <path key={region.id} d={region.path} className="india-region" /> : null,
@@ -313,33 +352,40 @@ export function IndiaMapPanel({ markers }: IndiaMapPanelProps) {
             </g>
 
             <g className="india-point-layer">
-              {clusteredMarkers.map((marker, index) => {
+              {projectedMarkers.map((marker, index) => {
                 const markerClassName = [
                   "map-point",
                   marker.highlighted ? "highlighted" : "",
+                  marker.overlapCount > 1 ? "overlap" : "",
                   marker.placement === "outskirts" ? "outskirts" : "",
                   marker.placement === "unknown" ? "unknown" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
+                const overlapIntensity = Math.min(marker.overlapCount, 10);
+                const markerStyle = {
+                  animationDelay: `${index * 140}ms`,
+                  "--glow-duration": `${Math.max(2.4, 3.8 - overlapIntensity * 0.12)}s`,
+                  "--glow-scale": `${1.08 + overlapIntensity * 0.03}`,
+                  "--glow-opacity": `${Math.min(0.26, 0.12 + overlapIntensity * 0.018)}`,
+                  "--ripple-duration": `${Math.max(1.6, 2.5 - overlapIntensity * 0.08)}s`,
+                  "--ripple-scale": `${2.2 + overlapIntensity * 0.08}`,
+                  "--ripple-opacity": `${Math.min(0.4, 0.24 + overlapIntensity * 0.014)}`,
+                } as CSSProperties;
 
                 return (
-                  <g
-                    key={marker.id}
-                    className="map-point-anchor"
-                    transform={`translate(${marker.x}, ${marker.y})`}
-                  >
-                    <g className={markerClassName} style={{ animationDelay: `${index * 120}ms` }}>
-                      <circle className="map-point-glow" r={marker.count > 1 ? 14 : 11} />
-                      <circle className="map-point-outer" r={marker.count > 1 ? 8 : 6} />
-                      <circle className="map-point-core" r="2.6" />
-                      {marker.count > 1 ? (
-                        <text className="map-point-count" textAnchor="middle" y="4">
-                          +{marker.count}
-                        </text>
-                      ) : null}
+                    <g
+                      key={marker.id}
+                      className="map-point-anchor"
+                      transform={`translate(${marker.x}, ${marker.y})`}
+                    >
+                      <g className={markerClassName} style={markerStyle}>
+                        <circle className="map-point-glow" r={marker.overlapCount > 1 ? 25 : 11.5} />
+                        <circle className="map-point-ripple" r={marker.overlapCount > 1 ? 25 : 11.5} />
+                        <circle className="map-point-outer" r={5} />
+                        <circle className="map-point-core" r="1.3" />
+                      </g>
                     </g>
-                  </g>
                 );
               })}
             </g>

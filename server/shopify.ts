@@ -1,4 +1,5 @@
 import type { DashboardDateRange } from "../src/types/dashboard";
+import { mapPlatformFromAppId } from "./platformMapping";
 import { getUtcRangeForIst } from "./timeRange";
 
 const SHOPIFY_API_VERSION = "2026-01";
@@ -299,7 +300,7 @@ export async function getShopifyOrdersForDateRange(dateRange: DashboardDateRange
     vendorSummary: string | null;
     brand: ShopifyBrand;
     channel: "D2C";
-    platform: "Unknown";
+    platform: "App" | "Web" | "Unknown";
     appId: string | null;
     appName: string | null;
     lineItems: Array<{
@@ -332,6 +333,7 @@ export async function getShopifyOrdersForDateRange(dateRange: DashboardDateRange
       );
       const brand =
         vendors.map(mapVendorToBrand).find((mappedBrand) => mappedBrand !== "Unknown") ?? "Unknown";
+      const appId = edge.node.app?.id ?? null;
 
       orders.push({
         id: edge.node.id,
@@ -346,8 +348,8 @@ export async function getShopifyOrdersForDateRange(dateRange: DashboardDateRange
         vendorSummary: vendors.join(", ") || null,
         brand,
         channel: "D2C",
-        platform: "Unknown",
-        appId: edge.node.app?.id ?? null,
+        platform: mapPlatformFromAppId(appId),
+        appId,
         appName: edge.node.app?.name ?? null,
         lineItems: edge.node.lineItems.edges.map(({ node: lineItem }) => ({
           id: lineItem.id,

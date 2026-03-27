@@ -15,6 +15,7 @@ import type {
   PlatformBreakdown,
   TrafficSnapshot,
 } from "../src/types/dashboard";
+import { getKnownPlatformMappings } from "./platformMapping";
 import { getUtcRangeForIst } from "./timeRange";
 
 interface StoredLineItemInput {
@@ -328,6 +329,29 @@ export function persistShopifyOrders(orders: StoredOrderInput[]) {
   });
 
   transaction(orders);
+}
+
+export function backfillStoredPlatformsFromAppIds() {
+  const mappings = getKnownPlatformMappings();
+
+  if (mappings.length === 0) {
+    return;
+  }
+
+  const updateStatement = database.prepare(`
+    UPDATE orders
+    SET platform = ?
+    WHERE app_id = ?
+       OR app_id = ?
+  `);
+
+  const transaction = database.transaction(() => {
+    for (const [appId, platform] of mappings) {
+      updateStatement.run(platform, appId, `gid://shopify/App/${appId}`);
+    }
+  });
+
+  transaction();
 }
 
 export function getStoredRecentOrders(limit = 25) {

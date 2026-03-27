@@ -14,11 +14,13 @@ import {
   buildOrderComment,
   buildSummaryComment,
   DRAIN_INTERVAL_MS,
+  getAdaptiveMarkerLimit,
   getAdaptiveMarkerVisibleMs,
   getLatestOrder,
   MAX_FEED_COMMENTS,
   MAX_FEED_QUEUE,
   MAX_MAP_MARKERS,
+  MIN_MAP_MARKERS,
   orderTimestamp,
   RECENT_ORDER_LIMIT,
   setMarkerHighlights,
@@ -27,8 +29,8 @@ import {
 
 const TRAFFIC_POLL_INTERVAL_MS = 300000;
 const ORDER_POLL_INTERVAL_MS = 10000;
-const RECENT_ORDERS_LIMIT = 100;
-const RECENT_ORDERS_LOOKBACK_MINUTES = 360;
+const RECENT_ORDERS_LIMIT = 320;
+const RECENT_ORDERS_LOOKBACK_MINUTES = 1440;
 const SNAPSHOT_POLL_INTERVAL_MS = 30000;
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -299,14 +301,23 @@ function pruneExpired(state: DashboardState, now: number): DashboardState {
   const activeFeedComments = state.activeFeedComments.filter(
     (comment) => comment.expiresAt > now,
   );
+  const newestPersistentMarkers = state.activeMapMarkers.slice(0, MIN_MAP_MARKERS);
+  const expiringMarkers = state.activeMapMarkers
+    .slice(MIN_MAP_MARKERS)
+    .filter((marker) => marker.expiresAt > now);
+  const activeMapMarkers = [...newestPersistentMarkers, ...expiringMarkers].slice(0, MAX_MAP_MARKERS);
 
-  if (activeFeedComments.length === state.activeFeedComments.length) {
+  if (
+    activeFeedComments.length === state.activeFeedComments.length &&
+    activeMapMarkers.length === state.activeMapMarkers.length
+  ) {
     return state;
   }
 
   return {
     ...state,
     activeFeedComments,
+    activeMapMarkers,
   };
 }
 
@@ -398,18 +409,19 @@ function reduceDashboardState(state: DashboardState, action: DashboardAction): D
       }
 
       const queue = [...cleaned.feedQueue];
-      const chunkSize = queue.length > 14 ? 4 : queue.length > 8 ? 2 : 1;
+      const chunkSize = queue.length > 18 ? 6 : queue.length > 10 ? 4 : queue.length > 4 ? 2 : 1;
       const drained = queue.splice(0, chunkSize);
       const primary = drained[0];
       const comments = [buildOrderComment(primary, now)];
       const latestOrder = getLatestOrder(cleaned.recentOrders);
       const markerVisibleMs = getAdaptiveMarkerVisibleMs(cleaned.feedQueue.length, drained.length);
+      const markerLimit = getAdaptiveMarkerLimit(cleaned.feedQueue.length, drained.length);
 
       if (drained.length > 1) {
         comments.unshift(buildSummaryComment(drained.length - 1, now));
       }
 
-      const markers = drained.slice(0, 2).map((order, index) =>
+      const markers = drained.map((order, index) =>
         buildMapMarker(
           order,
           now + index * 80,
@@ -426,7 +438,7 @@ function reduceDashboardState(state: DashboardState, action: DashboardAction): D
           MAX_FEED_COMMENTS,
         ),
         activeMapMarkers: setMarkerHighlights(
-          [...markers, ...cleaned.activeMapMarkers].slice(0, MAX_MAP_MARKERS),
+          [...markers, ...cleaned.activeMapMarkers].slice(0, markerLimit),
           latestOrder?.id,
         ),
       };
@@ -571,7 +583,7 @@ export function useDashboardStream(dateRange: DashboardDateRange) {
             type: "stream",
             update: {
               type: "orders",
-              orders: unseenOrders.slice(0, 6),
+              orders: unseenOrders,
             },
             now: Date.now(),
           });

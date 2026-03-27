@@ -4,6 +4,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  backfillStoredPlatformsFromAppIds,
   getDashboardSnapshotFromDb,
   getStoredOrdersForRange,
   getStoredRecentOrders,
@@ -34,6 +35,8 @@ const REALTIME_CACHE_TTL_MS = 15_000;
 
 let cachedRealtimeUsers: { activeUsers: number; fetchedAt: number } | null = null;
 let realtimeUsersPromise: Promise<number> | null = null;
+
+backfillStoredPlatformsFromAppIds();
 
 app.use(
   cors({

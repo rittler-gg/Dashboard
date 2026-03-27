@@ -42,8 +42,9 @@
   --map-badge-border: rgba(255, 241, 222, 0.09);
   --map-highlight-background: rgba(255, 236, 212, 0.06);
   --map-highlight-border: rgba(255, 239, 217, 0.08);
+  --map-green-accent: #009245;
   --map-pin-glow: rgba(228, 111, 83, 0.18);
-  --map-pin-fill: #e46f53;
+  --map-pin-fill: #009245;
   --map-pin-core: #fff5e3;
   --map-pin-highlight-glow: rgba(255, 210, 117, 0.22);
   --map-pin-highlight-fill: #ffd275;
@@ -459,18 +460,19 @@ a {
 }
 
 .map-countdown span {
-  color: var(--muted-text);
+  color: color-mix(in srgb, var(--map-green-accent) 32%, var(--muted-text));
   font-size: 0.76rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .map-countdown strong {
-  color: var(--strong-text);
+  color: color-mix(in srgb, var(--map-green-accent) 20%, var(--strong-text));
   font-size: clamp(1.7rem, 3vw, 2.6rem);
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
+  text-shadow: 0 0 18px rgba(0, 146, 69, 0.08);
 }
 
 .map-highlight {
@@ -547,10 +549,19 @@ a {
 }
 
 .map-point-glow {
-  fill: var(--map-pin-glow);
+  fill: url(#map-halo-gradient);
   transform-box: fill-box;
   transform-origin: center;
-  animation: map-glow-pulse 2.8s infinite;
+  animation: map-halo-breathe var(--glow-duration, 3.2s) ease-in-out infinite;
+  opacity: var(--glow-opacity, 0.12);
+}
+
+.map-point-ripple {
+  fill: url(#map-halo-gradient);
+  stroke: none;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .map-point-outer {
@@ -572,20 +583,27 @@ a {
   pointer-events: none;
 }
 
-.map-point.highlighted .map-point-glow {
-  fill: var(--map-pin-highlight-glow);
+.map-point.overlap .map-point-glow {
+  opacity: max(var(--glow-opacity, 0.12), 0.22);
+  filter: drop-shadow(0 0 18px rgba(0, 146, 69, 0.16));
 }
 
 .map-point.highlighted .map-point-outer {
-  fill: var(--map-pin-highlight-fill);
+  fill: color-mix(in srgb, var(--map-pin-fill) 88%, white);
 }
 
 .map-point.highlighted .map-point-core {
-  fill: var(--map-pin-highlight-core);
+  fill: #ecfff5;
+}
+
+.map-point.highlighted .map-point-ripple {
+  animation: map-point-ripple var(--ripple-duration, 2.2s) ease-out infinite;
 }
 
 .map-point.outskirts .map-point-glow {
   fill: rgba(247, 198, 109, 0.18);
+  opacity: 0.18;
+  animation: map-halo-breathe 3.8s ease-in-out infinite;
 }
 
 .map-point.outskirts .map-point-outer {
@@ -598,6 +616,8 @@ a {
 
 .map-point.unknown .map-point-glow {
   fill: rgba(180, 165, 147, 0.2);
+  opacity: 0.16;
+  animation: map-halo-breathe 3.8s ease-in-out infinite;
 }
 
 .map-point.unknown .map-point-outer {
@@ -656,7 +676,14 @@ a {
 }
 
 .feed-chip.live {
-  color: var(--supporting-strong-text);
+  color: color-mix(in srgb, var(--map-green-accent) 28%, var(--supporting-strong-text));
+  background: rgba(0, 146, 69, 0.08);
+  border-color: rgba(0, 146, 69, 0.18);
+}
+
+.map-panel .eyebrow,
+.order-feed-overlay-head .eyebrow {
+  color: color-mix(in srgb, var(--map-green-accent) 34%, var(--muted-text));
 }
 
 .order-feed-overlay {
@@ -719,6 +746,10 @@ a {
 .feed-comment-headline strong,
 .breakdown-meta strong {
   font-size: 1.02rem;
+}
+
+.feed-comment-headline strong {
+  color: color-mix(in srgb, var(--map-green-accent) 18%, var(--supporting-strong-text));
 }
 
 .feed-comment-headline span,
@@ -992,6 +1023,35 @@ a {
   100% {
     transform: scale(0.9);
     opacity: 0;
+  }
+}
+
+@keyframes map-point-ripple {
+  0% {
+    transform: scale(0.4);
+    opacity: var(--ripple-opacity, 0.2);
+  }
+  40% {
+    opacity: calc(var(--ripple-opacity, 0.2) * 0.55);
+  }
+  100% {
+    transform: scale(var(--ripple-scale, 2));
+    opacity: 0;
+  }
+}
+
+@keyframes map-halo-breathe {
+  0% {
+    transform: scale(0.92);
+    opacity: calc(var(--glow-opacity, 0.12) * 0.72);
+  }
+  50% {
+    transform: scale(var(--glow-scale, 1.14));
+    opacity: var(--glow-opacity, 0.12);
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: calc(var(--glow-opacity, 0.12) * 0.72);
   }
 }
 
